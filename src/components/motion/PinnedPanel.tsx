@@ -53,7 +53,7 @@ export function PinnedPanel({
               scrollTrigger: {
                 trigger: sectionRef.current,
                 start: "top top",
-                end: "+=100%",
+                end: "+=55%",
                 scrub: 1,
                 pin: true,
                 anticipatePin: 1,

@@ -42,3 +42,17 @@ export interface ProjectEntry extends BaseEntry {
 }
 
 export type TimelineEntry = EducationEntry | ProjectEntry;
+
+export interface CareerEntry {
+  id: string;
+  /** Display label, e.g. "2022 – Present" or "NOW" */
+  dateLabel: string;
+  /** ISO date (start of range), used only for chronological ordering */
+  sortDate: string;
+  role: string;
+  subtitle: string;
+  description: string;
+  /** id of a ProjectEntry this role/degree produced, for cross-linking */
+  relatedProjectId?: string;
+  isNow?: boolean;
+}

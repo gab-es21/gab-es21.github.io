@@ -49,3 +49,52 @@ export function ChevronDownIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function CodeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true" {...props}>
+      <path d="m8 6-5 6 5 6M16 6l5 6-5 6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function CpuIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true" {...props}>
+      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+      <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ServerIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true" {...props}>
+      <rect x="3.5" y="4" width="17" height="6" rx="1.5" />
+      <rect x="3.5" y="14" width="17" height="6" rx="1.5" />
+      <path d="M7 7h.01M7 17h.01" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function DatabaseIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true" {...props}>
+      <ellipse cx="12" cy="6" rx="7.5" ry="3" />
+      <path d="M4.5 6v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6M4.5 12v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-6" />
+    </svg>
+  );
+}
+
+export function BotIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true" {...props}>
+      <rect x="4.5" y="9" width="15" height="10" rx="2.5" />
+      <circle cx="9" cy="14" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="14" r="1.2" fill="currentColor" stroke="none" />
+      <path d="M12 9V5.5M9.5 5.5h5" strokeLinecap="round" />
+      <circle cx="12" cy="4" r="1" />
+    </svg>
+  );
+}
