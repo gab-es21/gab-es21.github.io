@@ -84,25 +84,12 @@ export function GuideStar() {
         stars.forEach((s, i) => {
           const off = CLUSTER_OFFSETS[i];
           if (off) {
-            gsap.set(s!, { x: idleX + off.x, y: idleY + off.y, opacity: 0.45, scale: 1 });
-            startTwinkle(i, 0.45);
+            gsap.set(s!, { x: idleX + off.x, y: idleY + off.y, opacity: 0.6, scale: 1 });
+            startTwinkle(i, 0.6);
           } else {
             gsap.set(s!, { x: idleX, y: idleY, opacity: 0, scale: 1 });
           }
         });
-
-        // Pulse: used while docked "with purpose" beside a project element.
-        let pulseTl: gsap.core.Timeline | null = null;
-        function startPulse() {
-          if (pulseTl) return;
-          gsap.set(star0, { scale: 1.6 });
-          pulseTl = gsap.timeline({ repeat: -1, yoyo: true });
-          pulseTl.to(star0, { scale: 2, duration: 0.9, ease: "sine.inOut" });
-        }
-        function stopPulse() {
-          pulseTl?.kill();
-          pulseTl = null;
-        }
 
         // Falling star: idle corner -> lands wherever getTarget() points, dragging a
         // comet trail. The cluster fades back into the sky as star0 departs.
@@ -118,7 +105,7 @@ export function GuideStar() {
           gsap.set(trail, { x, y, rotate: angle + 180, width: 90 * intensity, opacity: intensity * 0.85 });
 
           for (let i = 1; i <= 4; i++) {
-            gsap.set(stars[i]!, { opacity: (1 - Math.min(p * 4, 1)) * 0.45 });
+            gsap.set(stars[i]!, { opacity: (1 - Math.min(p * 4, 1)) * 0.6 });
           }
         }
 
@@ -142,8 +129,8 @@ export function GuideStar() {
             stars.forEach((s, i) => {
               const off = CLUSTER_OFFSETS[i];
               if (!off) return;
-              gsap.set(s!, { x: idleX + off.x, y: idleY + off.y, opacity: 0.45, scale: 1 });
-              startTwinkle(i, 0.45);
+              gsap.set(s!, { x: idleX + off.x, y: idleY + off.y, opacity: 0.6, scale: 1 });
+              startTwinkle(i, 0.6);
             });
           },
         });
@@ -166,50 +153,70 @@ export function GuideStar() {
           },
         });
 
-        // --- Projects: purposeful docking per panel -----------------------------
-        function projectTarget(panel: HTMLElement): Point {
-          const video = panel.querySelector("video");
-          if (video) {
-            const r = video.getBoundingClientRect();
-            return { x: r.right + 20, y: r.top + r.height / 2 };
-          }
-          const stat = panel.querySelector(".text-6xl");
-          if (stat) {
-            const r = stat.getBoundingClientRect();
-            return { x: r.left - 20, y: r.top + r.height / 2 };
-          }
-          const cta = panel.querySelector("a.bg-cyan-400");
-          if (cta) {
-            const r = cta.getBoundingClientRect();
-            return { x: r.right - 10, y: r.top + r.height / 2 };
-          }
-          const r = panel.getBoundingClientRect();
-          return { x: r.left + 28, y: r.top + 28 };
+        // --- Projects: the star falls into each panel's media card and merges
+        // into its border (same color, per your "merge into that button" idea,
+        // generalized to all three panels) instead of docking beside it. -------
+        function projectBorderTarget(panel: HTMLElement): HTMLElement | null {
+          return panel.querySelector<HTMLElement>(".rounded-2xl.border");
+        }
+        function projectAnchor(panel: HTMLElement): Point {
+          const el = projectBorderTarget(panel);
+          const r = (el ?? panel).getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }
+        function setBorderGlow(el: HTMLElement | null, p: number) {
+          if (!el) return;
+          gsap.set(el, {
+            borderColor: gsap.utils.interpolate("rgba(255,255,255,0.1)", "rgba(45,230,255,0.9)", clamp01(p)),
+            boxShadow: `0 0 ${26 * clamp01(p)}px -6px rgba(45,230,255,${0.55 * clamp01(p)})`,
+          });
         }
 
         const panels = Array.from(document.querySelectorAll<HTMLElement>("#projects > section"));
-        panels.forEach((panel) => {
+        panels.forEach((panel, i) => {
+          const prevBorder = i > 0 ? projectBorderTarget(panels[i - 1]) : null;
+          const thisBorder = projectBorderTarget(panel);
+          let fallFrom: Point | null = null;
+
+          // Covers the scroll distance while this panel scrolls into pinned
+          // position -- the natural "gap" between the previous panel's dwell
+          // ending and this one's beginning becomes the falling-star transit.
           ScrollTrigger.create({
             trigger: panel,
-            start: "top top",
-            end: "+=55%",
+            start: "top bottom",
+            end: "top top",
             scrub: true,
-            onUpdate: () => {
+            onUpdate: (self) => {
               stopTwinkle(0);
-              const { x, y } = projectTarget(panel);
-              gsap.set(star0, { x, y, opacity: 1 });
-              gsap.set(trail, { opacity: 0, width: 0 });
-              for (let i = 1; i < POOL_SIZE; i++) gsap.set(stars[i]!, { opacity: 0 });
-              startPulse();
+              const p = self.progress;
+              if (!fallFrom) {
+                fallFrom = {
+                  x: (gsap.getProperty(star0, "x") as number) ?? idleX,
+                  y: (gsap.getProperty(star0, "y") as number) ?? idleY,
+                };
+              }
+              const to = projectAnchor(panel);
+              const x = lerp(fallFrom.x, to.x, p);
+              const y = lerp(fallFrom.y, to.y, p);
+              gsap.set(star0, { x, y, opacity: lerp(1, 0, p), scale: 1.6 });
+
+              const angle = Math.atan2(to.y - fallFrom.y, to.x - fallFrom.x) * (180 / Math.PI);
+              const intensity = Math.sin(clamp01(p) * Math.PI);
+              gsap.set(trail, { x, y, rotate: angle + 180, width: 70 * intensity, opacity: intensity * 0.8 });
+
+              setBorderGlow(prevBorder, 1 - p);
+              setBorderGlow(thisBorder, p);
+              for (let k = 1; k < POOL_SIZE; k++) gsap.set(stars[k]!, { opacity: 0 });
             },
-            onLeave: stopPulse,
-            onLeaveBack: stopPulse,
+            onLeaveBack: () => {
+              fallFrom = null;
+            },
           });
         });
+        const lastPanelBorder = panels.length ? projectBorderTarget(panels[panels.length - 1]) : null;
 
         // --- Also shipped + Core Technologies: split into one star per box -----
         function revealSplit(targets: Point[], scale: number) {
-          stopPulse();
           stopTwinkle(0);
           targets.forEach((t, i) => {
             if (!stars[i]) return;
@@ -233,7 +240,10 @@ export function GuideStar() {
             start: "top 65%",
             end: "bottom 35%",
             scrub: true,
-            onUpdate: () => trackSplit(centersOf(gridBoxes())),
+            onUpdate: (self) => {
+              trackSplit(centersOf(gridBoxes()));
+              setBorderGlow(lastPanelBorder, 1 - self.progress);
+            },
             onEnter: () => revealSplit(centersOf(gridBoxes()), 1.3),
             onEnterBack: () => revealSplit(centersOf(gridBoxes()), 1.3),
           });
@@ -305,7 +315,6 @@ export function GuideStar() {
         return () => {
           window.removeEventListener("resize", onResize);
           stars.forEach((_, i) => stopTwinkle(i));
-          stopPulse();
         };
       });
 
@@ -326,7 +335,7 @@ export function GuideStar() {
           ref={(el) => {
             starRefs.current[i] = el;
           }}
-          className="absolute left-0 top-0 h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_1.5px_rgba(0,247,255,0.55)]"
+          className="absolute left-0 top-0 h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_2px_rgba(0,247,255,0.6)]"
         />
       ))}
     </div>
