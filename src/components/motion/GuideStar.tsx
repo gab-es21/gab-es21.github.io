@@ -4,22 +4,26 @@ import { useRef } from "react";
 import { gsap, ScrollTrigger, useGSAP } from "@/components/motion/gsapConfig";
 
 const POOL_SIZE = 6;
-const IDLE_TOP = 80;
-const IDLE_RIGHT = 40;
-
-// Offsets (from the idle point) for the small resting cluster of stars at the
-// top of the page. Index 0 is the primary star that goes on to do everything else.
-const CLUSTER_OFFSETS: { x: number; y: number }[] = [
-  { x: 0, y: 0 },
-  { x: -26, y: 16 },
-  { x: 20, y: 30 },
-  { x: -14, y: -22 },
-  { x: 30, y: 6 },
-];
 
 interface Point {
   x: number;
   y: number;
+}
+
+// Fractions of viewport width/height for the resting cluster of stars at the
+// top of the page -- spread across the whole width, not clumped in a corner.
+// Index 0 is the primary star that goes on to do everything else.
+const CLUSTER_FRACTIONS: Point[] = [
+  { x: 0.86, y: 0.08 },
+  { x: 0.15, y: 0.16 },
+  { x: 0.42, y: 0.07 },
+  { x: 0.64, y: 0.22 },
+  { x: 0.3, y: 0.24 },
+];
+
+function clusterPoint(i: number): Point {
+  const f = CLUSTER_FRACTIONS[i];
+  return { x: window.innerWidth * f.x, y: window.innerHeight * f.y };
 }
 
 function lerp(a: number, b: number, p: number) {
@@ -54,10 +58,12 @@ export function GuideStar() {
         if (stars.length < POOL_SIZE || stars.some((s) => !s) || !trail || !trackEl) return;
         const star0 = stars[0]!;
 
-        let idleX = window.innerWidth - IDLE_RIGHT;
-        const idleY = IDLE_TOP;
+        let idleX = clusterPoint(0).x;
+        let idleY = clusterPoint(0).y;
         function onResize() {
-          idleX = window.innerWidth - IDLE_RIGHT;
+          const p = clusterPoint(0);
+          idleX = p.x;
+          idleY = p.y;
         }
         window.addEventListener("resize", onResize);
 
@@ -80,11 +86,12 @@ export function GuideStar() {
           twinkles[i] = null;
         }
 
-        // Idle cluster: several small dim stars, only one of which is "the" star.
+        // Idle cluster: several small dim stars spread across the page, only one
+        // of which is "the" star.
         stars.forEach((s, i) => {
-          const off = CLUSTER_OFFSETS[i];
-          if (off) {
-            gsap.set(s!, { x: idleX + off.x, y: idleY + off.y, opacity: 0.6, scale: 1 });
+          if (i < CLUSTER_FRACTIONS.length) {
+            const p = clusterPoint(i);
+            gsap.set(s!, { x: p.x, y: p.y, opacity: 0.6, scale: 1 });
             startTwinkle(i, 0.6);
           } else {
             gsap.set(s!, { x: idleX, y: idleY, opacity: 0, scale: 1 });
@@ -127,9 +134,9 @@ export function GuideStar() {
           onLeaveBack: () => {
             gsap.set(trail, { opacity: 0, width: 0 });
             stars.forEach((s, i) => {
-              const off = CLUSTER_OFFSETS[i];
-              if (!off) return;
-              gsap.set(s!, { x: idleX + off.x, y: idleY + off.y, opacity: 0.6, scale: 1 });
+              if (i >= CLUSTER_FRACTIONS.length) return;
+              const p = clusterPoint(i);
+              gsap.set(s!, { x: p.x, y: p.y, opacity: 0.6, scale: 1 });
               startTwinkle(i, 0.6);
             });
           },
@@ -172,15 +179,50 @@ export function GuideStar() {
           });
         }
 
+        // A panel's own content fade-out happens inside ITS pinned dwell (see
+        // PinnedPanel.tsx: "top top" -> "+=55%"), not when the next panel
+        // scrolls into view. Watching the next panel's arrival to release the
+        // star made it reappear while the previous panel's video/text were
+        // still fully visible -- it was stealing focus, not merging. Instead,
+        // each transition has two stages that share one `fallFrom` snapshot:
+        // Stage A watches the PREVIOUS panel's own pin (identical trigger/
+        // start/end to its internal timeline) and only releases the star in
+        // the last 30% of that dwell, once its content has actually faded.
+        // Stage B is the scroll-through gap as the NEXT panel arrives, where
+        // the star travels the rest of the way and merges into its border.
         const panels = Array.from(document.querySelectorAll<HTMLElement>("#projects > section"));
-        panels.forEach((panel, i) => {
-          const prevBorder = i > 0 ? projectBorderTarget(panels[i - 1]) : null;
-          const thisBorder = projectBorderTarget(panel);
-          let fallFrom: Point | null = null;
+        const RELEASE_AT = 0.7;
 
-          // Covers the scroll distance while this panel scrolls into pinned
-          // position -- the natural "gap" between the previous panel's dwell
-          // ending and this one's beginning becomes the falling-star transit.
+        function stageA(
+          prevPanel: HTMLElement,
+          prevBorder: HTMLElement | null,
+          getFrom: () => Point | null,
+          setFrom: (p: Point | null) => void
+        ) {
+          ScrollTrigger.create({
+            trigger: prevPanel,
+            start: "top top",
+            end: "+=55%",
+            scrub: true,
+            onUpdate: (self) => {
+              const raw = self.progress;
+              if (raw < RELEASE_AT) {
+                gsap.set(star0, { opacity: 0 });
+                gsap.set(trail, { opacity: 0, width: 0 });
+                return;
+              }
+              stopTwinkle(0);
+              const from = getFrom() ?? { x: (gsap.getProperty(star0, "x") as number) ?? idleX, y: (gsap.getProperty(star0, "y") as number) ?? idleY };
+              setFrom(from);
+              const pA = (raw - RELEASE_AT) / (1 - RELEASE_AT);
+              gsap.set(star0, { x: from.x, y: from.y, opacity: pA, scale: 1.6 });
+              setBorderGlow(prevBorder, 1 - pA);
+            },
+            onLeaveBack: () => setFrom(null),
+          });
+        }
+
+        function stageB(panel: HTMLElement, thisBorder: HTMLElement | null, getFrom: () => Point | null) {
           ScrollTrigger.create({
             trigger: panel,
             start: "top bottom",
@@ -188,38 +230,89 @@ export function GuideStar() {
             scrub: true,
             onUpdate: (self) => {
               stopTwinkle(0);
-              const p = self.progress;
-              if (!fallFrom) {
-                fallFrom = {
-                  x: (gsap.getProperty(star0, "x") as number) ?? idleX,
-                  y: (gsap.getProperty(star0, "y") as number) ?? idleY,
-                };
-              }
+              const pB = self.progress;
+              const from = getFrom() ?? { x: (gsap.getProperty(star0, "x") as number) ?? idleX, y: (gsap.getProperty(star0, "y") as number) ?? idleY };
               const to = projectAnchor(panel);
-              const x = lerp(fallFrom.x, to.x, p);
-              const y = lerp(fallFrom.y, to.y, p);
+              const x = lerp(from.x, to.x, pB);
+              const y = lerp(from.y, to.y, pB);
+              const opacity = pB < RELEASE_AT ? 1 : 1 - (pB - RELEASE_AT) / (1 - RELEASE_AT);
+              gsap.set(star0, { x, y, opacity, scale: 1.6 });
 
-              const intensity = Math.sin(clamp01(p) * Math.PI);
-              // Panel 0 arrives already visible (straight from the fully-lit
-              // timeline). Every panel after that starts merged into the
-              // previous border (invisible), so it fades IN as it detaches,
-              // peaks mid-flight, then fades OUT again as it lands.
-              const starOpacity = prevBorder ? intensity : lerp(1, 0, clamp01(p));
-              gsap.set(star0, { x, y, opacity: starOpacity, scale: 1.6 });
-
-              const angle = Math.atan2(to.y - fallFrom.y, to.x - fallFrom.x) * (180 / Math.PI);
+              const angle = Math.atan2(to.y - from.y, to.x - from.x) * (180 / Math.PI);
+              const intensity = Math.sin(clamp01(pB) * Math.PI);
               gsap.set(trail, { x, y, rotate: angle + 180, width: 70 * intensity, opacity: intensity * 0.8 });
 
-              setBorderGlow(prevBorder, 1 - p);
-              setBorderGlow(thisBorder, p);
+              setBorderGlow(thisBorder, pB);
               for (let k = 1; k < POOL_SIZE; k++) gsap.set(stars[k]!, { opacity: 0 });
             },
-            onLeaveBack: () => {
-              fallFrom = null;
+          });
+        }
+
+        panels.forEach((panel, i) => {
+          const thisBorder = projectBorderTarget(panel);
+
+          if (i === 0) {
+            // No previous panel to wait on -- falls straight from the
+            // fully-lit timeline hand-off, same as before.
+            let fallFrom: Point | null = null;
+            ScrollTrigger.create({
+              trigger: panel,
+              start: "top bottom",
+              end: "top top",
+              scrub: true,
+              onUpdate: (self) => {
+                stopTwinkle(0);
+                const p = self.progress;
+                if (!fallFrom) {
+                  fallFrom = {
+                    x: (gsap.getProperty(star0, "x") as number) ?? idleX,
+                    y: (gsap.getProperty(star0, "y") as number) ?? idleY,
+                  };
+                }
+                const to = projectAnchor(panel);
+                const x = lerp(fallFrom.x, to.x, p);
+                const y = lerp(fallFrom.y, to.y, p);
+                gsap.set(star0, { x, y, opacity: lerp(1, 0, p), scale: 1.6 });
+
+                const angle = Math.atan2(to.y - fallFrom.y, to.x - fallFrom.x) * (180 / Math.PI);
+                const intensity = Math.sin(clamp01(p) * Math.PI);
+                gsap.set(trail, { x, y, rotate: angle + 180, width: 70 * intensity, opacity: intensity * 0.8 });
+
+                setBorderGlow(thisBorder, p);
+                for (let k = 1; k < POOL_SIZE; k++) gsap.set(stars[k]!, { opacity: 0 });
+              },
+              onLeaveBack: () => {
+                fallFrom = null;
+              },
+            });
+            return;
+          }
+
+          const prevPanel = panels[i - 1];
+          const prevBorder = projectBorderTarget(prevPanel);
+          let fallFrom: Point | null = null;
+          stageA(prevPanel, prevBorder, () => fallFrom, (v) => { fallFrom = v; });
+          stageB(panel, thisBorder, () => fallFrom);
+        });
+
+        // Fades the last panel's border out during ITS OWN pin tail, same
+        // pattern as stageA, so it doesn't linger lit once Also-shipped's stars
+        // have already taken over.
+        const lastPanelBorder = panels.length ? projectBorderTarget(panels[panels.length - 1]) : null;
+        if (panels.length) {
+          const lastPanel = panels[panels.length - 1];
+          ScrollTrigger.create({
+            trigger: lastPanel,
+            start: "top top",
+            end: "+=55%",
+            scrub: true,
+            onUpdate: (self) => {
+              const raw = self.progress;
+              if (raw < RELEASE_AT) return;
+              setBorderGlow(lastPanelBorder, 1 - (raw - RELEASE_AT) / (1 - RELEASE_AT));
             },
           });
-        });
-        const lastPanelBorder = panels.length ? projectBorderTarget(panels[panels.length - 1]) : null;
+        }
 
         // --- Also shipped + Core Technologies: split into one star per box -----
         function revealSplit(targets: Point[], scale: number) {
@@ -246,10 +339,7 @@ export function GuideStar() {
             start: "top 65%",
             end: "bottom 35%",
             scrub: true,
-            onUpdate: (self) => {
-              trackSplit(centersOf(gridBoxes()));
-              setBorderGlow(lastPanelBorder, 1 - self.progress);
-            },
+            onUpdate: () => trackSplit(centersOf(gridBoxes())),
             onEnter: () => revealSplit(centersOf(gridBoxes()), 1.3),
             onEnterBack: () => revealSplit(centersOf(gridBoxes()), 1.3),
           });
