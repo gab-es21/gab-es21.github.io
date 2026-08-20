@@ -8,7 +8,6 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 export function CareerTimeline() {
   const trackRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
-  const dotRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<(HTMLSpanElement | null)[]>([]);
 
   useGSAP(
@@ -16,6 +15,8 @@ export function CareerTimeline() {
       const mm = gsap.matchMedia();
 
       mm.add("(prefers-reduced-motion: no-preference)", () => {
+        // Start/end must stay identical to GuideStar's "timeline" phase (GuideStar.tsx),
+        // which targets this same #career-track element so the two stay pixel-synced.
         gsap.timeline({
           scrollTrigger: {
             trigger: trackRef.current,
@@ -24,7 +25,6 @@ export function CareerTimeline() {
             scrub: true,
             onUpdate: (self) => {
               if (progressRef.current) progressRef.current.style.height = `${self.progress * 100}%`;
-              if (dotRef.current) dotRef.current.style.top = `${self.progress * 100}%`;
 
               if (trackRef.current) {
                 const trackTop = trackRef.current.getBoundingClientRect().top;
@@ -68,18 +68,12 @@ export function CareerTimeline() {
     <section id="career" className="mx-auto max-w-4xl px-6 py-28 md:px-10">
       <SectionHeading eyebrow="Journey" title="Career & Education" />
 
-      <div ref={trackRef} className="relative mt-16 pl-8">
+      <div ref={trackRef} id="career-track" className="relative mt-16 pl-8">
         <div className="absolute bottom-1 left-[4.5px] top-1 w-px bg-white/10" aria-hidden />
         <div
           ref={progressRef}
           className="absolute left-[4.5px] top-1 w-px bg-cyan-400"
           style={{ height: 0 }}
-          aria-hidden
-        />
-        <div
-          ref={dotRef}
-          className="absolute left-[5px] h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400 shadow-[0_0_12px_2px_rgba(0,247,255,0.6)]"
-          style={{ top: 0 }}
           aria-hidden
         />
 

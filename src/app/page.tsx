@@ -1,4 +1,5 @@
 import { Starfield } from "@/components/motion/Starfield";
+import { GuideStar } from "@/components/motion/GuideStar";
 import { Intro } from "@/components/sections/Intro";
 import { CareerTimeline } from "@/components/sections/CareerTimeline";
 import { ProjectShowcase } from "@/components/sections/ProjectShowcase";
@@ -10,6 +11,7 @@ export default function Home() {
   return (
     <main>
       <Starfield />
+      <GuideStar />
       <Intro />
       <CareerTimeline />
       <ProjectShowcase />
