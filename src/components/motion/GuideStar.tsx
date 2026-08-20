@@ -44,6 +44,8 @@ function centersOf(container: Element | null): Point[] {
 
 export function GuideStar() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const bgLayerRef = useRef<HTMLDivElement>(null);
+  const fgLayerRef = useRef<HTMLDivElement>(null);
   const starRefs = useRef<(HTMLDivElement | null)[]>([]);
   const trailRef = useRef<HTMLDivElement>(null);
 
@@ -55,8 +57,20 @@ export function GuideStar() {
         const stars = starRefs.current;
         const trail = trailRef.current;
         const trackEl = document.getElementById("career-track");
-        if (stars.length < POOL_SIZE || stars.some((s) => !s) || !trail || !trackEl) return;
+        const bgLayer = bgLayerRef.current;
+        const fgLayer = fgLayerRef.current;
+        if (stars.length < POOL_SIZE || stars.some((s) => !s) || !trail || !trackEl || !bgLayer || !fgLayer) return;
         const star0 = stars[0]!;
+
+        // The idle cluster rests behind normal page content (bgLayer); anything
+        // actively doing something (falling, riding the timeline, docking on a
+        // border) moves to fgLayer so it reads clearly over text/images.
+        function toForeground(el: HTMLElement) {
+          if (el.parentElement !== fgLayer) fgLayer!.appendChild(el);
+        }
+        function toBackground(el: HTMLElement) {
+          if (el.parentElement !== bgLayer) bgLayer!.appendChild(el);
+        }
 
         let idleX = clusterPoint(0).x;
         let idleY = clusterPoint(0).y;
@@ -102,6 +116,10 @@ export function GuideStar() {
         // comet trail. The cluster fades back into the sky as star0 departs.
         function positionAlongFall(getTarget: () => Point, p: number) {
           stopTwinkle(0);
+          if (p > 0) {
+            toForeground(star0);
+            toForeground(trail!);
+          }
           const { x: tx, y: ty } = getTarget();
           const x = lerp(idleX, tx, p);
           const y = lerp(idleY, ty, p);
@@ -133,8 +151,11 @@ export function GuideStar() {
           onUpdate: (self) => positionAlongFall(careerLandingTarget, self.progress),
           onLeaveBack: () => {
             gsap.set(trail, { opacity: 0, width: 0 });
+            toBackground(star0);
+            toBackground(trail);
             stars.forEach((s, i) => {
               if (i >= CLUSTER_FRACTIONS.length) return;
+              toBackground(s!);
               const p = clusterPoint(i);
               gsap.set(s!, { x: p.x, y: p.y, opacity: 0.6, scale: 1 });
               startTwinkle(i, 0.6);
@@ -252,13 +273,22 @@ export function GuideStar() {
           const thisBorder = projectBorderTarget(panel);
 
           if (i === 0) {
-            // No previous panel to wait on -- falls straight from the
-            // fully-lit timeline hand-off, same as before.
+            // No previous panel to wait on -- falls from the timeline hand-off.
+            // Bounds are explicit absolute scroll positions matching trackEl's
+            // own "bottom 55%" (exactly where the timeline ST's range ends) and
+            // this panel's own "top top" (exactly where its pin begins), so
+            // this can never overlap the timeline's still-active range and pull
+            // the star away before it's actually finished riding the track.
             let fallFrom: Point | null = null;
             ScrollTrigger.create({
-              trigger: panel,
-              start: "top bottom",
-              end: "top top",
+              start: () => {
+                const r = trackEl!.getBoundingClientRect();
+                return r.bottom + window.scrollY - window.innerHeight * 0.55;
+              },
+              end: () => {
+                const r = panel.getBoundingClientRect();
+                return r.top + window.scrollY;
+              },
               scrub: true,
               onUpdate: (self) => {
                 stopTwinkle(0);
@@ -319,6 +349,7 @@ export function GuideStar() {
           stopTwinkle(0);
           targets.forEach((t, i) => {
             if (!stars[i]) return;
+            toForeground(stars[i]!);
             gsap.to(stars[i]!, { x: t.x, y: t.y, opacity: 1, scale, duration: 0.6, ease: "power2.out" });
           });
           for (let i = targets.length; i < POOL_SIZE; i++) {
@@ -420,20 +451,27 @@ export function GuideStar() {
   );
 
   return (
-    <div ref={containerRef} className="pointer-events-none fixed inset-0 z-30" aria-hidden>
-      <div
-        ref={trailRef}
-        className="absolute left-0 top-0 h-px rounded-full bg-gradient-to-r from-cyan-300/80 to-transparent"
-      />
-      {Array.from({ length: POOL_SIZE }, (_, i) => (
+    <div ref={containerRef} aria-hidden>
+      {/* Behind normal-flow content (text/images have no z-index of their own,
+          so anything here paints under them) -- the idle/resting layer. */}
+      <div ref={bgLayerRef} className="pointer-events-none fixed inset-0 -z-10">
         <div
-          key={i}
-          ref={(el) => {
-            starRefs.current[i] = el;
-          }}
-          className="absolute left-0 top-0 h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_2px_rgba(0,247,255,0.6)]"
+          ref={trailRef}
+          className="absolute left-0 top-0 h-px rounded-full bg-gradient-to-r from-cyan-300/80 to-transparent"
         />
-      ))}
+        {Array.from({ length: POOL_SIZE }, (_, i) => (
+          <div
+            key={i}
+            ref={(el) => {
+              starRefs.current[i] = el;
+            }}
+            className="absolute left-0 top-0 h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_2px_rgba(0,247,255,0.6)]"
+          />
+        ))}
+      </div>
+      {/* In front, for whenever the star needs to be clearly visible over
+          content (falling, riding the timeline, merging into a border). */}
+      <div ref={fgLayerRef} className="pointer-events-none fixed inset-0 z-30" />
     </div>
   );
 }
