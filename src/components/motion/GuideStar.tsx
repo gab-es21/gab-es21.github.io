@@ -198,10 +198,16 @@ export function GuideStar() {
               const to = projectAnchor(panel);
               const x = lerp(fallFrom.x, to.x, p);
               const y = lerp(fallFrom.y, to.y, p);
-              gsap.set(star0, { x, y, opacity: lerp(1, 0, p), scale: 1.6 });
+
+              const intensity = Math.sin(clamp01(p) * Math.PI);
+              // Panel 0 arrives already visible (straight from the fully-lit
+              // timeline). Every panel after that starts merged into the
+              // previous border (invisible), so it fades IN as it detaches,
+              // peaks mid-flight, then fades OUT again as it lands.
+              const starOpacity = prevBorder ? intensity : lerp(1, 0, clamp01(p));
+              gsap.set(star0, { x, y, opacity: starOpacity, scale: 1.6 });
 
               const angle = Math.atan2(to.y - fallFrom.y, to.x - fallFrom.x) * (180 / Math.PI);
-              const intensity = Math.sin(clamp01(p) * Math.PI);
               gsap.set(trail, { x, y, rotate: angle + 180, width: 70 * intensity, opacity: intensity * 0.8 });
 
               setBorderGlow(prevBorder, 1 - p);
