@@ -85,19 +85,29 @@ export function GuideStar() {
         gsap.set(trail, { xPercent: 0, yPercent: -50, transformOrigin: "0% 50%", width: 0, opacity: 0 });
 
         // Per-star twinkle loops -------------------------------------------------
-        const twinkles: (gsap.core.Timeline | null)[] = stars.map(() => null);
+        // The timeline is stashed directly on the DOM element (not just in this
+        // closure's local array) because Next.js 16 / React 19 can invoke this
+        // whole effect more than once for the same mounted elements (see the
+        // defensive cleanup above); matchMedia's own revert() wasn't reliably
+        // killing a previous generation's infinite-repeat twinkle, leaving two
+        // independent loops fighting over the same element's opacity. Reading
+        // any existing timeline off the element itself, regardless of which
+        // generation created it, makes this correct no matter how many times
+        // the effect runs.
+        type TwinkleHost = HTMLDivElement & { __twinkleTl?: gsap.core.Timeline };
         function startTwinkle(i: number, base = 0.5) {
-          if (twinkles[i]) return;
-          const el = stars[i]!;
+          const el = stars[i] as TwinkleHost;
+          if (el.__twinkleTl) return;
           const tl = gsap.timeline({ repeat: -1, delay: gsap.utils.random(0.2, 2) });
           tl.to(el, { opacity: 1, duration: 0.25, ease: "power2.out" })
             .to(el, { opacity: base, duration: 0.8, ease: "power2.inOut" })
             .to({}, { duration: () => gsap.utils.random(1, 3) });
-          twinkles[i] = tl;
+          el.__twinkleTl = tl;
         }
         function stopTwinkle(i: number) {
-          twinkles[i]?.kill();
-          twinkles[i] = null;
+          const el = stars[i] as TwinkleHost | undefined;
+          el?.__twinkleTl?.kill();
+          if (el) el.__twinkleTl = undefined;
         }
 
         // Idle cluster: several small dim stars spread across the page, only one
@@ -130,6 +140,11 @@ export function GuideStar() {
           gsap.set(trail, { x, y, rotate: angle + 180, width: 90 * intensity, opacity: intensity * 0.85 });
 
           for (let i = 1; i <= 4; i++) {
+            // Their idle twinkle loop runs forever (repeat: -1) until killed --
+            // without this it keeps overwriting opacity on its own schedule,
+            // fighting this fade and flickering the companions back into view
+            // at their stale idle-cluster positions for the rest of the page.
+            stopTwinkle(i);
             gsap.set(stars[i]!, { opacity: (1 - Math.min(p * 4, 1)) * 0.6 });
           }
         }
@@ -142,6 +157,7 @@ export function GuideStar() {
         // Falls across almost the entire scroll of the page above the timeline
         // (starts right away, not right before Career) so it's a long, gradual descent.
         ScrollTrigger.create({
+          id: "guidestar-fall1",
           start: 60,
           end: () => {
             const r = trackEl!.getBoundingClientRect();
@@ -166,6 +182,7 @@ export function GuideStar() {
         // Rides the career track's own progress line, matching CareerTimeline.tsx's math 1:1.
         // Start/end must stay identical to that component's own #career-track ScrollTrigger.
         ScrollTrigger.create({
+          id: "guidestar-timeline",
           trigger: trackEl,
           start: "top 75%",
           end: "bottom 55%",
@@ -228,15 +245,23 @@ export function GuideStar() {
         }
 
         function stageA(
+          idx: number,
           prevPanel: HTMLElement,
           prevBorder: HTMLElement | null,
           getFrom: () => Point | null,
           setFrom: (p: Point | null) => void
         ) {
           ScrollTrigger.create({
+            id: `guidestar-stageA-${idx}`,
             trigger: prevPanel,
-            start: "top top",
-            end: "+=55%",
+            // Starts exactly where this panel's own incoming fall lands
+            // (ARRIVE_INTO_PIN), not at raw "top top" -- otherwise this watcher
+            // and the still-arriving fall both control star0's opacity at once
+            // and fight over it for the whole overlap. End is computed the same
+            // way (not "+=55%", which would resolve relative to this custom
+            // start rather than the panel's actual pin end).
+            start: () => intoPin(prevPanel, ARRIVE_INTO_PIN),
+            end: () => intoPin(prevPanel, 1),
             scrub: true,
             onUpdate: (self) => {
               const raw = self.progress;
@@ -256,10 +281,20 @@ export function GuideStar() {
           });
         }
 
-        function stageB(panel: HTMLElement, thisBorder: HTMLElement | null, getFrom: () => Point | null) {
+        function stageB(idx: number, prevPanel: HTMLElement, panel: HTMLElement, thisBorder: HTMLElement | null, getFrom: () => Point | null) {
           ScrollTrigger.create({
+            id: `guidestar-stageB-${idx}`,
             trigger: panel,
-            start: "top bottom",
+            // Not "top bottom": that string gets resolved against panel's
+            // CURRENT layout position, which depends on the previous panel's
+            // pin-spacer height -- but this component's effect runs before
+            // PinnedPanel's own effect has created that spacer (GuideStar
+            // mounts earlier in the tree), so the string snapshot is taken
+            // ~495px (one pin duration) too early and never gets corrected on
+            // refresh. Starting exactly where the previous panel's own pin
+            // ends is immune to that ordering issue and stays contiguous with
+            // stageA's end by construction.
+            start: () => intoPin(prevPanel, 1),
             end: () => intoPin(panel, ARRIVE_INTO_PIN),
             scrub: true,
             onUpdate: (self) => {
@@ -294,6 +329,7 @@ export function GuideStar() {
             // lands partway into this panel's own pin, not at its very start.
             let fallFrom: Point | null = null;
             ScrollTrigger.create({
+              id: "guidestar-panel0fall",
               start: () => {
                 const r = trackEl!.getBoundingClientRect();
                 return r.bottom + window.scrollY - window.innerHeight * 0.55;
@@ -331,8 +367,8 @@ export function GuideStar() {
           const prevPanel = panels[i - 1];
           const prevBorder = projectBorderTarget(prevPanel);
           let fallFrom: Point | null = null;
-          stageA(prevPanel, prevBorder, () => fallFrom, (v) => { fallFrom = v; });
-          stageB(panel, thisBorder, () => fallFrom);
+          stageA(i, prevPanel, prevBorder, () => fallFrom, (v) => { fallFrom = v; });
+          stageB(i, prevPanel, panel, thisBorder, () => fallFrom);
         });
 
         // Fades the last panel's border out during ITS OWN pin tail, same
@@ -342,9 +378,10 @@ export function GuideStar() {
         if (panels.length) {
           const lastPanel = panels[panels.length - 1];
           ScrollTrigger.create({
+            id: "guidestar-lastpanel",
             trigger: lastPanel,
-            start: "top top",
-            end: "+=55%",
+            start: () => intoPin(lastPanel, ARRIVE_INTO_PIN),
+            end: () => intoPin(lastPanel, 1),
             scrub: true,
             onUpdate: (self) => {
               const raw = self.progress;
@@ -356,9 +393,9 @@ export function GuideStar() {
 
         // --- Also shipped + Core Technologies: split into one star per box -----
         function revealSplit(targets: Point[], scale: number) {
-          stopTwinkle(0);
           targets.forEach((t, i) => {
             if (!stars[i]) return;
+            stopTwinkle(i);
             toForeground(stars[i]!);
             gsap.to(stars[i]!, { x: t.x, y: t.y, opacity: 1, scale, duration: 0.6, ease: "power2.out" });
           });
@@ -376,6 +413,7 @@ export function GuideStar() {
         if (gridEl) {
           const gridBoxes = () => gridEl.querySelector(":scope > div.grid");
           ScrollTrigger.create({
+            id: "guidestar-grid",
             trigger: gridEl,
             start: "top 65%",
             end: "bottom 35%",
@@ -398,6 +436,7 @@ export function GuideStar() {
             return boxes;
           };
           ScrollTrigger.create({
+            id: "guidestar-skills",
             trigger: skillsEl,
             start: "top 65%",
             end: "bottom 35%",
@@ -413,6 +452,7 @@ export function GuideStar() {
         if (contactEl) {
           let mergeFrom: Point[] = [];
           ScrollTrigger.create({
+            id: "guidestar-contact",
             trigger: contactEl,
             start: "top 85%",
             end: "top 45%",
