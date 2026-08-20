@@ -213,14 +213,15 @@ export function GuideStar() {
         // the star travels the rest of the way and merges into its border.
         const panels = Array.from(document.querySelectorAll<HTMLElement>("#projects > section"));
         const RELEASE_AT = 0.7;
-        // A panel's own entrance animation (text/media fading in) plays during
-        // roughly the first third of its pin dwell. Landing exactly at "top
-        // top" (the very start of the pin) meant the star arrived and merged
-        // before the panel had even appeared -- by the time the content faded
-        // in, the moment had already passed and nothing visibly happened.
-        // Extend the arrival point this far into the panel's own pin instead,
-        // so landing roughly coincides with the entrance settling.
-        const ARRIVE_INTO_PIN = 0.3;
+        // PinnedPanel.tsx's own entrance timeline (desktop): text .from()
+        // duration 0.4 starting at t=0; media .from() duration 0.4 starting
+        // "<0.1" (0.1 after the text tween's start, so t=0.1) -> media hits its
+        // max (opacity 1, scale 1) at t=0.5. The exit fade starts "+=0.3" after
+        // that (t=0.8) and runs 0.4 more, for a total timeline length of 1.2.
+        // So media's max, as a fraction of the whole pin dwell, is 0.5/1.2.
+        // The star must reach opacity 0 (fully merged) at exactly that point --
+        // not before the video has finished fading/zooming in.
+        const ARRIVE_INTO_PIN = 0.5 / 1.2;
         function intoPin(panel: HTMLElement, fraction: number) {
           const r = panel.getBoundingClientRect();
           return r.top + window.scrollY + window.innerHeight * 0.55 * fraction;
