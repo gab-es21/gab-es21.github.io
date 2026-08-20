@@ -58,7 +58,7 @@ function ProjectCard({ entry, delay }: { entry: ProjectEntry; delay: number }) {
 
 export function ProjectGrid() {
   return (
-    <section className="mx-auto max-w-6xl px-6 py-28 md:px-10">
+    <section id="project-grid" className="mx-auto max-w-6xl px-6 py-28 md:px-10">
       <FadeInReveal>
         <SectionHeading eyebrow="More projects" title="Also shipped" />
       </FadeInReveal>

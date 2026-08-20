@@ -51,11 +51,10 @@ export function GuideStar() {
         }
         startTwinkle();
 
-        // Falling star: idle corner -> lands exactly where the timeline phase picks up.
-        function positionAlongFall(p: number) {
-          const rect = trackEl!.getBoundingClientRect();
-          const tx = rect.left + 5;
-          const ty = rect.top;
+        // Falling star: idle corner -> lands wherever getTarget() points. Reused for the
+        // Intro -> Career fall and (bespoke variant) the final Skills -> Contact fall.
+        function positionAlongFall(getTarget: () => { x: number; y: number }, p: number) {
+          const { x: tx, y: ty } = getTarget();
           const x = lerp(idleX, tx, p);
           const y = lerp(idleY, ty, p);
           gsap.set(star, { x, y, opacity: 0.5 + 0.5 * p, scale: 1 });
@@ -63,6 +62,11 @@ export function GuideStar() {
           const angle = Math.atan2(ty - idleY, tx - idleX) * (180 / Math.PI);
           const intensity = Math.sin(Math.min(Math.max(p, 0), 1) * Math.PI);
           gsap.set(trail, { x, y, rotate: angle + 180, width: 100 * intensity, opacity: intensity * 0.85 });
+        }
+
+        function careerLandingTarget() {
+          const rect = trackEl!.getBoundingClientRect();
+          return { x: rect.left + 5, y: rect.top };
         }
 
         // Rides the career track's own progress line, matching CareerTimeline.tsx's math 1:1.
@@ -81,7 +85,7 @@ export function GuideStar() {
           scrub: true,
           onUpdate: (self) => {
             stopTwinkle();
-            positionAlongFall(self.progress);
+            positionAlongFall(careerLandingTarget, self.progress);
           },
           onLeaveBack: () => {
             startTwinkle();
@@ -104,9 +108,110 @@ export function GuideStar() {
           onLeave: () => startTwinkle(),
         });
 
+        // --- Bespoke beats for everything after the timeline -----------------
+
+        // Projects: sit beside whichever pinned panel is currently active.
+        const panels = Array.from(document.querySelectorAll<HTMLElement>("#projects > section"));
+        panels.forEach((panel) => {
+          ScrollTrigger.create({
+            trigger: panel,
+            start: "top top",
+            end: "+=55%",
+            scrub: true,
+            onUpdate: () => {
+              stopTwinkle();
+              const rect = panel.getBoundingClientRect();
+              gsap.set(star, { x: rect.left + 28, y: rect.top + 28, opacity: 1, scale: 1 });
+              gsap.set(trail, { opacity: 0, width: 0 });
+            },
+            onLeave: () => startTwinkle(),
+            onLeaveBack: () => startTwinkle(),
+          });
+        });
+
+        // Also-shipped grid + Skills: a small orbit near the section heading while in view.
+        function attachOrbit(sectionId: string, radius: number, duration: number) {
+          const sectionEl = document.getElementById(sectionId);
+          if (!sectionEl) return;
+
+          let orbitTl: gsap.core.Timeline | null = null;
+          const center = { x: 0, y: 0 };
+
+          function updateCenter() {
+            const rect = sectionEl!.getBoundingClientRect();
+            center.x = rect.left + 40;
+            center.y = rect.top + 24;
+          }
+
+          function begin() {
+            stopTwinkle();
+            updateCenter();
+            gsap.set(star, { opacity: 1, scale: 1 });
+            gsap.set(trail, { opacity: 0, width: 0 });
+            if (orbitTl) return;
+            const state = { angle: 0 };
+            orbitTl = gsap.timeline({ repeat: -1 });
+            orbitTl.to(state, {
+              angle: Math.PI * 2,
+              duration,
+              ease: "none",
+              onUpdate: () => {
+                gsap.set(star, {
+                  x: center.x + Math.cos(state.angle) * radius,
+                  y: center.y + Math.sin(state.angle) * radius,
+                });
+              },
+            });
+          }
+          function end() {
+            orbitTl?.kill();
+            orbitTl = null;
+            startTwinkle();
+          }
+
+          ScrollTrigger.create({
+            trigger: sectionEl,
+            start: "top 65%",
+            end: "bottom 35%",
+            scrub: true,
+            onUpdate: updateCenter,
+            onEnter: begin,
+            onEnterBack: begin,
+            onLeave: end,
+            onLeaveBack: end,
+          });
+
+          return () => orbitTl?.kill();
+        }
+
+        const killGridOrbit = attachOrbit("project-grid", 18, 4);
+        const killSkillsOrbit = attachOrbit("skills", 18, 3);
+
+        // Contact: one last fall-and-land beside the "Get in touch" heading.
+        const contactEl = document.getElementById("contact");
+        if (contactEl) {
+          ScrollTrigger.create({
+            trigger: contactEl,
+            start: "top 90%",
+            end: "top 50%",
+            scrub: true,
+            onUpdate: (self) => {
+              stopTwinkle();
+              positionAlongFall(() => {
+                const rect = contactEl.querySelector("p")?.getBoundingClientRect() ?? contactEl.getBoundingClientRect();
+                return { x: rect.left + rect.width / 2, y: rect.top };
+              }, self.progress);
+            },
+            onLeave: () => startTwinkle(),
+            onLeaveBack: () => startTwinkle(),
+          });
+        }
+
         return () => {
           window.removeEventListener("resize", onResize);
           stopTwinkle();
+          killGridOrbit?.();
+          killSkillsOrbit?.();
         };
       });
 
