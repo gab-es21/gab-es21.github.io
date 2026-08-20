@@ -34,6 +34,23 @@ function clamp01(p: number) {
   return Math.min(Math.max(p, 0), 1);
 }
 
+// Equivalent of ScrollTrigger's "top X%" / "bottom X%" string syntax, but
+// computed live from the element's current position instead of a cached
+// string resolution. Needed for anything positioned after the pinned
+// project panels: their absolute position depends on those panels' pin-
+// spacer heights, which don't exist yet when this component's effect first
+// runs (it mounts earlier in the tree than PinnedPanel), and a string
+// boundary snapshotted at that moment doesn't get corrected by GSAP's own
+// refresh pass. A function is re-evaluated on every refresh instead.
+function atViewportTop(el: HTMLElement, percent: number) {
+  const r = el.getBoundingClientRect();
+  return r.top + window.scrollY - percent * window.innerHeight;
+}
+function atViewportBottom(el: HTMLElement, percent: number) {
+  const r = el.getBoundingClientRect();
+  return r.bottom + window.scrollY - percent * window.innerHeight;
+}
+
 function centersOf(container: Element | null): Point[] {
   if (!container) return [];
   return Array.from(container.children).map((child) => {
@@ -415,8 +432,8 @@ export function GuideStar() {
           ScrollTrigger.create({
             id: "guidestar-grid",
             trigger: gridEl,
-            start: "top 65%",
-            end: "bottom 35%",
+            start: () => atViewportTop(gridEl, 0.65),
+            end: () => atViewportBottom(gridEl, 0.35),
             scrub: true,
             onUpdate: () => trackSplit(centersOf(gridBoxes())),
             onEnter: () => revealSplit(centersOf(gridBoxes()), 1.3),
@@ -438,8 +455,8 @@ export function GuideStar() {
           ScrollTrigger.create({
             id: "guidestar-skills",
             trigger: skillsEl,
-            start: "top 65%",
-            end: "bottom 35%",
+            start: () => atViewportTop(skillsEl, 0.65),
+            end: () => atViewportBottom(skillsEl, 0.35),
             scrub: true,
             onUpdate: () => trackSplit(targets()),
             onEnter: () => revealSplit(targets(), 1.1),
@@ -454,8 +471,8 @@ export function GuideStar() {
           ScrollTrigger.create({
             id: "guidestar-contact",
             trigger: contactEl,
-            start: "top 85%",
-            end: "top 45%",
+            start: () => atViewportTop(contactEl, 0.85),
+            end: () => atViewportTop(contactEl, 0.45),
             scrub: true,
             onUpdate: (self) => {
               stopTwinkle(0);
