@@ -213,6 +213,18 @@ export function GuideStar() {
         // the star travels the rest of the way and merges into its border.
         const panels = Array.from(document.querySelectorAll<HTMLElement>("#projects > section"));
         const RELEASE_AT = 0.7;
+        // A panel's own entrance animation (text/media fading in) plays during
+        // roughly the first third of its pin dwell. Landing exactly at "top
+        // top" (the very start of the pin) meant the star arrived and merged
+        // before the panel had even appeared -- by the time the content faded
+        // in, the moment had already passed and nothing visibly happened.
+        // Extend the arrival point this far into the panel's own pin instead,
+        // so landing roughly coincides with the entrance settling.
+        const ARRIVE_INTO_PIN = 0.3;
+        function intoPin(panel: HTMLElement, fraction: number) {
+          const r = panel.getBoundingClientRect();
+          return r.top + window.scrollY + window.innerHeight * 0.55 * fraction;
+        }
 
         function stageA(
           prevPanel: HTMLElement,
@@ -247,7 +259,7 @@ export function GuideStar() {
           ScrollTrigger.create({
             trigger: panel,
             start: "top bottom",
-            end: "top top",
+            end: () => intoPin(panel, ARRIVE_INTO_PIN),
             scrub: true,
             onUpdate: (self) => {
               stopTwinkle(0);
@@ -274,21 +286,18 @@ export function GuideStar() {
 
           if (i === 0) {
             // No previous panel to wait on -- falls from the timeline hand-off.
-            // Bounds are explicit absolute scroll positions matching trackEl's
-            // own "bottom 55%" (exactly where the timeline ST's range ends) and
-            // this panel's own "top top" (exactly where its pin begins), so
+            // Start is an explicit absolute scroll position matching trackEl's
+            // own "bottom 55%" (exactly where the timeline ST's range ends), so
             // this can never overlap the timeline's still-active range and pull
-            // the star away before it's actually finished riding the track.
+            // the star away before it's actually finished riding the track. End
+            // lands partway into this panel's own pin, not at its very start.
             let fallFrom: Point | null = null;
             ScrollTrigger.create({
               start: () => {
                 const r = trackEl!.getBoundingClientRect();
                 return r.bottom + window.scrollY - window.innerHeight * 0.55;
               },
-              end: () => {
-                const r = panel.getBoundingClientRect();
-                return r.top + window.scrollY;
-              },
+              end: () => intoPin(panel, ARRIVE_INTO_PIN),
               scrub: true,
               onUpdate: (self) => {
                 stopTwinkle(0);
