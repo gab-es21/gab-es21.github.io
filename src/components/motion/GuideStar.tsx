@@ -104,6 +104,21 @@ export function GuideStar() {
           onLeave: () => startTwinkle(),
         });
 
+        // Companion phase: the timeline hands off here (identical "bottom 55%" boundary,
+        // so there's no gap/overlap), and the star drifts down a fixed corner band for the
+        // rest of the page, twinkling the whole way (started by the timeline's onLeave above).
+        ScrollTrigger.create({
+          trigger: trackEl,
+          start: "bottom 55%",
+          end: () => document.documentElement.scrollHeight - window.innerHeight,
+          scrub: true,
+          onUpdate: (self) => {
+            const bandTop = window.innerHeight * 0.22;
+            const bandBottom = window.innerHeight * 0.72;
+            gsap.set(star, { x: idleX, y: lerp(bandTop, bandBottom, self.progress) });
+          },
+        });
+
         return () => {
           window.removeEventListener("resize", onResize);
           stopTwinkle();
