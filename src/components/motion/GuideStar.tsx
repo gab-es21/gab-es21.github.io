@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { gsap, ScrollTrigger, useGSAP } from "@/components/motion/gsapConfig";
 
-const POOL_SIZE = 6;
+const POOL_SIZE = 5;
 
 interface Point {
   x: number;
@@ -32,31 +32,6 @@ function lerp(a: number, b: number, p: number) {
 
 function clamp01(p: number) {
   return Math.min(Math.max(p, 0), 1);
-}
-
-// Equivalent of ScrollTrigger's "top X%" / "bottom X%" string syntax, but
-// computed live from the element's current position instead of a cached
-// string resolution. Needed for anything positioned after the pinned
-// project panels: their absolute position depends on those panels' pin-
-// spacer heights, which don't exist yet when this component's effect first
-// runs (it mounts earlier in the tree than PinnedPanel), and a string
-// boundary snapshotted at that moment doesn't get corrected by GSAP's own
-// refresh pass. A function is re-evaluated on every refresh instead.
-function atViewportTop(el: HTMLElement, percent: number) {
-  const r = el.getBoundingClientRect();
-  return r.top + window.scrollY - percent * window.innerHeight;
-}
-function atViewportBottom(el: HTMLElement, percent: number) {
-  const r = el.getBoundingClientRect();
-  return r.bottom + window.scrollY - percent * window.innerHeight;
-}
-
-function centersOf(container: Element | null): Point[] {
-  if (!container) return [];
-  return Array.from(container.children).map((child) => {
-    const r = child.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + 16 };
-  });
 }
 
 export function GuideStar() {
@@ -213,6 +188,21 @@ export function GuideStar() {
             gsap.set(trail, { opacity: 0, width: 0 });
             for (let i = 1; i < POOL_SIZE; i++) gsap.set(stars[i]!, { opacity: 0 });
           },
+          onLeave: () => {
+            // The panel-tracking choreography below assumes each panel stays
+            // visually pinned in place long enough for the star to "arrive"
+            // -- but PinnedPanel only pins above 768px, so on mobile every
+            // panel is continuously scrolling past while the star chases a
+            // percentage-based target on it, and the two fall out of sync
+            // (confirmed with real scroll gestures: the target goes off-
+            // screen and the star effectively stalls). Rather than keep
+            // patching a timing model that doesn't fit mobile's non-pinned
+            // reality, the journey just ends here on mobile -- settle
+            // quietly instead of chasing panels that won't hold still.
+            if (window.innerWidth < 768) {
+              gsap.to(star0, { opacity: 0, duration: 0.6, ease: "power2.out" });
+            }
+          },
         });
 
         // --- Projects: the star falls into each panel's media card and merges
@@ -343,6 +333,39 @@ export function GuideStar() {
           });
         }
 
+        // Deferred two frames: every PinnedPanel mounts its own pin (and
+        // inserts its own pin-spacer, shifting every panel after it, and in
+        // turn everything after all three panels) in a layout effect
+        // separate from this component's, which runs earlier in the tree.
+        // intoPin()/atViewportTop()/atViewportBottom() are live functions,
+        // but a ScrollTrigger only calls them again on its own refresh pass
+        // -- and that didn't turn out to reliably happen after every pin was
+        // in place either (confirmed: an explicit ScrollTrigger.refresh()
+        // call left an already-created trigger's resolved end unchanged,
+        // even though calling the same function directly at that same
+        // moment returned the correct value). So instead of creating these
+        // triggers immediately and hoping a later refresh fixes them,
+        // creating them fresh after two animation frames -- by which point
+        // every other component's layout effect has already run -- means
+        // they resolve correctly from the start.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+        // This effect can run more than once for the same elements (a
+        // "reappear" layout-effect path this app hits under Next.js 16 /
+        // React 19), and both invocations' deferred callbacks land after
+        // pins exist, so both create a full set of these triggers. Kill any
+        // previous generation's by id first so exactly one set survives.
+        // (fall1/timeline are created synchronously outside this deferred
+        // block and aren't affected -- only what's created below is.)
+        ScrollTrigger.getAll().forEach((st) => {
+          const id = st.vars.id;
+          if (typeof id === "string" && id.startsWith("guidestar-") && id !== "guidestar-fall1" && id !== "guidestar-timeline") {
+            st.kill();
+          }
+        });
+        // Panel tracking is desktop-only -- see the timeline trigger's
+        // onLeave above for why mobile doesn't attempt it.
+        if (window.innerWidth >= 768) {
         panels.forEach((panel, i) => {
           const thisBorder = projectBorderTarget(panel);
 
@@ -396,146 +419,13 @@ export function GuideStar() {
           stageA(i, prevPanel, prevBorder, () => fallFrom, (v) => { fallFrom = v; });
           stageB(i, prevPanel, panel, thisBorder, () => fallFrom);
         });
-
-        // Fades the last panel's border out during ITS OWN pin tail, same
-        // pattern as stageA, so it doesn't linger lit once Also-shipped's stars
-        // have already taken over.
-        const lastPanel = panels.length ? panels[panels.length - 1] : null;
-        const lastPanelBorder = lastPanel ? projectBorderTarget(lastPanel) : null;
-        if (lastPanel) {
-          ScrollTrigger.create({
-            id: "guidestar-lastpanel",
-            trigger: lastPanel,
-            start: () => intoPin(lastPanel, ARRIVE_INTO_PIN),
-            end: () => intoPin(lastPanel, 1),
-            scrub: true,
-            onUpdate: (self) => {
-              const raw = self.progress;
-              if (raw < RELEASE_AT) return;
-              setBorderGlow(lastPanelBorder, 1 - (raw - RELEASE_AT) / (1 - RELEASE_AT));
-            },
-          });
         }
 
-        // --- Also shipped + Core Technologies: split into one star per box -----
-        function revealSplit(targets: Point[], scale: number) {
-          targets.forEach((t, i) => {
-            if (!stars[i]) return;
-            stopTwinkle(i);
-            toForeground(stars[i]!);
-            gsap.to(stars[i]!, { x: t.x, y: t.y, opacity: 1, scale, duration: 0.6, ease: "power2.out" });
+        // The journey ends here by design: once the star merges into the
+        // last panel's (Chatbot's) border via stageB above, it stays merged
+        // -- no further movement, no Also-shipped/Skills/Contact animation.
           });
-          for (let i = targets.length; i < POOL_SIZE; i++) {
-            gsap.to(stars[i]!, { opacity: 0, duration: 0.4 });
-          }
-        }
-        function trackSplit(targets: Point[]) {
-          targets.forEach((t, i) => {
-            if (stars[i]) gsap.set(stars[i]!, { x: t.x, y: t.y });
-          });
-        }
-
-        // Grid/Skills/Contact boundaries below are chained off one another
-        // (each one's start reuses the exact formula of the previous one's
-        // end) for the same reason stageA/stageB are chained off each panel's
-        // own resolved pin position: two independently-computed boundaries
-        // (e.g. "the last panel's own pin end" vs "this section's own top
-        // 65%") aren't guaranteed to be contiguous. On mobile, where sections
-        // are shorter (no pin dwell inflating distances), that gap frequently
-        // becomes a real overlap -- confirmed here (grid started 19px before
-        // the chatbot panel's own stageB finished landing, and grid/skills/
-        // contact overlapped each other by up to 422px) -- causing the
-        // scroll-driven landing and the eased reveal tween to fight over the
-        // same star's opacity every frame, same class of bug as before.
-        const gridEl = document.getElementById("project-grid");
-        const gridEnd = () => (gridEl ? atViewportBottom(gridEl, 0.35) : 0);
-        if (gridEl) {
-          const gridBoxes = () => gridEl.querySelector(":scope > div.grid");
-          ScrollTrigger.create({
-            id: "guidestar-grid",
-            trigger: gridEl,
-            start: () => (lastPanel ? intoPin(lastPanel, 1) : atViewportTop(gridEl, 0.65)),
-            end: gridEnd,
-            scrub: true,
-            onUpdate: () => trackSplit(centersOf(gridBoxes())),
-            onEnter: () => revealSplit(centersOf(gridBoxes()), 1.3),
-            onEnterBack: () => revealSplit(centersOf(gridBoxes()), 1.3),
-          });
-        }
-
-        const skillsEl = document.getElementById("skills");
-        const skillsEnd = () => (skillsEl ? atViewportBottom(skillsEl, 0.35) : 0);
-        if (skillsEl) {
-          const terminalEl = skillsEl.querySelector(":scope > div.mt-6");
-          const targets = () => {
-            const boxes = centersOf(skillsEl.querySelector(":scope > div.grid"));
-            if (terminalEl) {
-              const r = terminalEl.getBoundingClientRect();
-              boxes.push({ x: r.left + r.width / 2, y: r.top + 16 });
-            }
-            return boxes;
-          };
-          ScrollTrigger.create({
-            id: "guidestar-skills",
-            trigger: skillsEl,
-            start: () => (gridEl ? gridEnd() : atViewportTop(skillsEl, 0.65)),
-            end: skillsEnd,
-            scrub: true,
-            onUpdate: () => trackSplit(targets()),
-            onEnter: () => revealSplit(targets(), 1.1),
-            onEnterBack: () => revealSplit(targets(), 1.1),
-          });
-        }
-
-        // --- Contact: everything converges into one, a little bigger -----------
-        const contactEl = document.getElementById("contact");
-        // End is a fixed distance past start rather than its own independent
-        // fraction: chaining start to skillsEnd() while leaving end pinned to
-        // contactEl's own top (a separate, unrelated formula) occasionally
-        // collapsed the range to zero width -- contactEl's actual position
-        // happened to land close enough to skillsEl's end that the two
-        // fractions resolved to nearly the same point, leaving no scroll
-        // distance for the merge to animate over.
-        const contactStart = () => (skillsEl ? skillsEnd() : atViewportTop(contactEl!, 0.85));
-        if (contactEl) {
-          let mergeFrom: Point[] = [];
-          ScrollTrigger.create({
-            id: "guidestar-contact",
-            trigger: contactEl,
-            start: contactStart,
-            end: () => contactStart() + window.innerHeight * 0.4,
-            scrub: true,
-            onUpdate: (self) => {
-              stopTwinkle(0);
-              const heading = contactEl.querySelector("h2") ?? contactEl;
-              const r = heading.getBoundingClientRect();
-              const target = { x: r.left + r.width / 2, y: r.top - 20 };
-              const p = self.progress;
-
-              if (mergeFrom.length === 0) {
-                mergeFrom = stars.map((s) => ({
-                  x: (gsap.getProperty(s, "x") as number) || idleX,
-                  y: (gsap.getProperty(s, "y") as number) || idleY,
-                }));
-              }
-
-              stars.forEach((s, i) => {
-                const from = mergeFrom[i];
-                const x = lerp(from.x, target.x, p);
-                const y = lerp(from.y, target.y, p);
-                if (i === 0) {
-                  gsap.set(s!, { x, y, opacity: 1, scale: lerp(1.3, 2.2, p) });
-                } else {
-                  gsap.set(s!, { x, y, opacity: lerp(1, 0, p), scale: lerp(1, 0.4, p) });
-                }
-              });
-            },
-            onLeave: () => startTwinkle(0, 0.75),
-            onLeaveBack: () => {
-              mergeFrom = [];
-            },
-          });
-        }
+        });
 
         return () => {
           window.removeEventListener("resize", onResize);
