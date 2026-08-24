@@ -256,9 +256,18 @@ export function GuideStar() {
         // The star must reach opacity 0 (fully merged) at exactly that point --
         // not before the video has finished fading/zooming in.
         const ARRIVE_INTO_PIN = 0.5 / 1.2;
+        // PinnedPanel only pins on "(min-width: 768px)" (see its own
+        // desktopMotion gate) -- on narrower viewports panels never pin, so
+        // there's no 0.55-viewport-height dwell to place a fraction into.
+        // Using that same fixed offset on mobile added a phantom ~55vh of
+        // scroll distance to every one of these boundaries, breaking the
+        // whole panel sequence there. Fall back to a fraction of the panel's
+        // OWN natural height instead -- 0 lands at its top, 1 at its bottom,
+        // which is the closest mobile equivalent of "pin start" / "pin end".
         function intoPin(panel: HTMLElement, fraction: number) {
           const r = panel.getBoundingClientRect();
-          return r.top + window.scrollY + window.innerHeight * 0.55 * fraction;
+          const span = window.innerWidth >= 768 ? window.innerHeight * 0.55 : r.height;
+          return r.top + window.scrollY + span * fraction;
         }
 
         function stageA(
@@ -391,9 +400,9 @@ export function GuideStar() {
         // Fades the last panel's border out during ITS OWN pin tail, same
         // pattern as stageA, so it doesn't linger lit once Also-shipped's stars
         // have already taken over.
-        const lastPanelBorder = panels.length ? projectBorderTarget(panels[panels.length - 1]) : null;
-        if (panels.length) {
-          const lastPanel = panels[panels.length - 1];
+        const lastPanel = panels.length ? panels[panels.length - 1] : null;
+        const lastPanelBorder = lastPanel ? projectBorderTarget(lastPanel) : null;
+        if (lastPanel) {
           ScrollTrigger.create({
             id: "guidestar-lastpanel",
             trigger: lastPanel,
@@ -426,14 +435,27 @@ export function GuideStar() {
           });
         }
 
+        // Grid/Skills/Contact boundaries below are chained off one another
+        // (each one's start reuses the exact formula of the previous one's
+        // end) for the same reason stageA/stageB are chained off each panel's
+        // own resolved pin position: two independently-computed boundaries
+        // (e.g. "the last panel's own pin end" vs "this section's own top
+        // 65%") aren't guaranteed to be contiguous. On mobile, where sections
+        // are shorter (no pin dwell inflating distances), that gap frequently
+        // becomes a real overlap -- confirmed here (grid started 19px before
+        // the chatbot panel's own stageB finished landing, and grid/skills/
+        // contact overlapped each other by up to 422px) -- causing the
+        // scroll-driven landing and the eased reveal tween to fight over the
+        // same star's opacity every frame, same class of bug as before.
         const gridEl = document.getElementById("project-grid");
+        const gridEnd = () => (gridEl ? atViewportBottom(gridEl, 0.35) : 0);
         if (gridEl) {
           const gridBoxes = () => gridEl.querySelector(":scope > div.grid");
           ScrollTrigger.create({
             id: "guidestar-grid",
             trigger: gridEl,
-            start: () => atViewportTop(gridEl, 0.65),
-            end: () => atViewportBottom(gridEl, 0.35),
+            start: () => (lastPanel ? intoPin(lastPanel, 1) : atViewportTop(gridEl, 0.65)),
+            end: gridEnd,
             scrub: true,
             onUpdate: () => trackSplit(centersOf(gridBoxes())),
             onEnter: () => revealSplit(centersOf(gridBoxes()), 1.3),
@@ -442,6 +464,7 @@ export function GuideStar() {
         }
 
         const skillsEl = document.getElementById("skills");
+        const skillsEnd = () => (skillsEl ? atViewportBottom(skillsEl, 0.35) : 0);
         if (skillsEl) {
           const terminalEl = skillsEl.querySelector(":scope > div.mt-6");
           const targets = () => {
@@ -455,8 +478,8 @@ export function GuideStar() {
           ScrollTrigger.create({
             id: "guidestar-skills",
             trigger: skillsEl,
-            start: () => atViewportTop(skillsEl, 0.65),
-            end: () => atViewportBottom(skillsEl, 0.35),
+            start: () => (gridEl ? gridEnd() : atViewportTop(skillsEl, 0.65)),
+            end: skillsEnd,
             scrub: true,
             onUpdate: () => trackSplit(targets()),
             onEnter: () => revealSplit(targets(), 1.1),
@@ -466,13 +489,21 @@ export function GuideStar() {
 
         // --- Contact: everything converges into one, a little bigger -----------
         const contactEl = document.getElementById("contact");
+        // End is a fixed distance past start rather than its own independent
+        // fraction: chaining start to skillsEnd() while leaving end pinned to
+        // contactEl's own top (a separate, unrelated formula) occasionally
+        // collapsed the range to zero width -- contactEl's actual position
+        // happened to land close enough to skillsEl's end that the two
+        // fractions resolved to nearly the same point, leaving no scroll
+        // distance for the merge to animate over.
+        const contactStart = () => (skillsEl ? skillsEnd() : atViewportTop(contactEl!, 0.85));
         if (contactEl) {
           let mergeFrom: Point[] = [];
           ScrollTrigger.create({
             id: "guidestar-contact",
             trigger: contactEl,
-            start: () => atViewportTop(contactEl, 0.85),
-            end: () => atViewportTop(contactEl, 0.45),
+            start: contactStart,
+            end: () => contactStart() + window.innerHeight * 0.4,
             scrub: true,
             onUpdate: (self) => {
               stopTwinkle(0);
