@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import Image from "next/image";
 import { gsap, useGSAP } from "@/components/motion/gsapConfig";
 import { PinnedPanel } from "@/components/motion/PinnedPanel";
 import { featuredProjects } from "@/data/timeline";
@@ -61,7 +62,19 @@ function SeaTurtleStatPanel() {
 
   return (
     <div ref={wrapRef} className="rounded-2xl border border-white/10 bg-white/[0.03] p-8 md:p-10">
-      <p className="text-sm uppercase tracking-widest text-white/50">Model performance</p>
+      <div
+        className="relative overflow-hidden rounded-xl border border-white/10 [--ar:2.2] md:[--ar:3]"
+        style={{ aspectRatio: "var(--ar)" }}
+      >
+        <Image
+          src="/images/sea_turtles.jpg"
+          alt="Drone footage of sea turtles with model-predicted bounding boxes"
+          fill
+          sizes="(min-width: 768px) 500px, 100vw"
+          className="object-cover"
+        />
+      </div>
+      <p className="mt-6 text-sm uppercase tracking-widest text-white/50">Model performance</p>
       <p className="mt-3 flex items-baseline gap-2 text-6xl font-extrabold text-cyan-400 md:text-7xl">
         <span ref={numRef}>0.0</span>
         <span className="text-2xl font-bold text-white/60 md:text-3xl">% mAP50</span>
