@@ -16,7 +16,7 @@ const entries: TimelineEntry[] = [
     category: "project",
     featured: true,
     title: "UR3 Robotic Arm — Pick & Place",
-    dateLabel: "Feb 2020 – Present",
+    dateLabel: "Feb 2020 – Jul 2020",
     sortDate: "2020-02-01",
     description:
       "ROS pick-and-place system for a Universal Robots UR3: a fixed-pose baseline and a camera-guided depth point-cloud pipeline, both running identically in simulation or on the real arm. Most recently revamped in 2026.",
